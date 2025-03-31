@@ -1,17 +1,10 @@
-def transform_data_in_duckdb(connection):
+def create_pokemon_stats_table(connection):
     """
-    Transform data from the consolidated table and create aggregated statistics.
-    This function creates a new table 'pokemon_stats' with aggregated metrics:
-    1. Calculates total count of Pokemon, minimum Pokemon ID, and maximum Pokemon ID.
-    2. Prints a preview of the transformed data.
-
+    Creates or replaces the 'pokemon_stats' table with aggregated metrics.
+    
     Args:
         connection: DuckDB connection object.
-
-    Returns:
-        str: Name of the created table ('pokemon_stats').
     """
-    # Create or replace the 'pokemon_stats' table with transformed data
     connection.execute("""
         CREATE OR REPLACE TABLE pokemon_stats AS
         SELECT 
@@ -22,10 +15,28 @@ def transform_data_in_duckdb(connection):
     """)
     print("Data transformed and stored in 'pokemon_stats' table.")
 
-    # Preview the transformed data
+def preview_pokemon_stats_data(connection):
+    """
+    Fetches and previews the data from the 'pokemon_stats' table.
+    
+    Args:
+        connection: DuckDB connection object.
+    """
     df = connection.execute("SELECT * FROM pokemon_stats").fetchdf()
     print("📈 Preview transformed data:")
     print(df)
 
-    # Return the name of the created table
+def transform_data_in_duckdb(connection):
+    """
+    Orchestrates the transformation logic by delegating to specific functions
+    for table creation and data preview.
+    
+    Args:
+        connection: DuckDB connection object.
+    
+    Returns:
+        str: Name of the created table ('pokemon_stats').
+    """
+    create_pokemon_stats_table(connection)
+    preview_pokemon_stats_data(connection)
     return "pokemon_stats"

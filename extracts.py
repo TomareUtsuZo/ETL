@@ -90,31 +90,25 @@ def update_metadata_and_get_offset():
 
 def extract_data(limit=CONFIG["batch_size"], last_id=None):
     """
-    Extracts Pokemon data from the PokeAPI and saves it to a Parquet file.
-
+    Extracts Pokemon data and saves it as Parquet files.
+    
     Args:
-        limit (int): Number of Pokemon records to fetch.
-        last_id (int, optional): ID to start fetching from. Defaults to None.
-
+        limit (int): Number of records per batch.
+        last_id (int): Starting offset.
+    
     Returns:
-        tuple: Extracted DataFrame and last_id of the next batch.
+        tuple: DataFrame and next batch ID.
     """
     if last_id is None:
         last_id = update_metadata_and_get_offset()
 
-    # Construct API URL and fetch data
     url = construct_api_url(limit, last_id)
-    data = fetch_data_from_api(url)
+    df = extract_batch_to_dataframe(url)
 
-    # Transform data to DataFrame
-    df = pd.DataFrame(data["results"])
-
-    # Construct file path and save DataFrame
     file_path = construct_file_path(last_id)
     save_to_parquet(df, file_path)
-
-    # Return extracted DataFrame and next ID
     return df, last_id + limit
+
 
 def query_all_records():
     """
@@ -144,3 +138,17 @@ def query_all_records():
             break
 
     return file_paths
+
+def extract_batch_to_dataframe(url):
+    """
+    Fetches a batch of data from the API and converts it into a DataFrame.
+    
+    Args:
+        url (str): API URL for the batch.
+    
+    Returns:
+        DataFrame: Cleaned DataFrame for the batch.
+    """
+    data = fetch_data_from_api(url)
+    df = pd.DataFrame(data["results"]).drop_duplicates(subset="url", keep="first")
+    return df
