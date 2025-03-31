@@ -6,8 +6,7 @@ from transform import transform_data_in_duckdb
 
 def main():
     print("Hello world!")
-    # all_records, file_paths = iterate_extract_data()
-    all_records = query_all_records()
+    all_records = query_all_records(10,2) # batch_size=10, number_of_batches_to_process=2)
 
     print("Extracted DataFrame:\n", all_records)
 

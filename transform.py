@@ -1,3 +1,23 @@
+def verify_pokedex_data(connection):
+    """
+    Verifies the consistency of the 'pokedex' table by counting total rows
+    and unique URLs.
+
+    Args:
+        connection: DuckDB connection object.
+    """
+    # Run verification query
+    df = connection.execute("""
+        SELECT 
+            COUNT(*) AS total_rows, 
+            COUNT(DISTINCT url) AS unique_urls 
+        FROM pokedex
+    """).fetchdf()
+
+    print("📊 Pokedex data verification results:")
+    print(df)
+
+# Add verification step before creating the stats table
 def create_pokemon_stats_table(connection):
     """
     Creates or replaces the 'pokemon_stats' table with aggregated metrics.
@@ -5,6 +25,10 @@ def create_pokemon_stats_table(connection):
     Args:
         connection: DuckDB connection object.
     """
+    # Verify the data
+    verify_pokedex_data(connection)
+    
+    # Create the 'pokemon_stats' table
     connection.execute("""
         CREATE OR REPLACE TABLE pokemon_stats AS
         SELECT 

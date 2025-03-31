@@ -110,16 +110,20 @@ def extract_data(limit=CONFIG["batch_size"], last_id=None):
     return df, last_id + limit
 
 
-def query_all_records():
+def query_all_records(batch_size=CONFIG["batch_size"], number_of_batches_to_process=None):
     """
-    Iteratively extracts all Pokemon records from the PokeAPI and saves them as Parquet files.
+    Iteratively extracts Pokemon records from the PokeAPI and saves them as Parquet files.
+
+    Args:
+        batch_size (int): Number of records per batch.
+        number_of_batches_to_process (int or None): Maximum number of batches to process. If None, processes all possible batches.
 
     Returns:
         list: List of Parquet file paths for all extracted records.
     """
-    batch_size = CONFIG["batch_size"]
     last_id = None  # Start from the last saved ID
     file_paths = []
+    batches_processed = 0
 
     while True:
         # Ensure last_id is valid
@@ -131,10 +135,16 @@ def query_all_records():
         file_path = construct_file_path(last_id)
         file_paths.append(file_path)
         last_id = next_id
+        batches_processed += 1
 
-        # Stop if fewer records than `limit` are returned
+        # Stop if fewer records than `batch_size` are returned
         if len(df) < batch_size:
             print("🎉 All records have been fetched.")
+            break
+
+        # Stop if the specified number of batches has been processed
+        if number_of_batches_to_process is not None and batches_processed >= number_of_batches_to_process:
+            print("✅ Specified number of batches processed.")
             break
 
     return file_paths
