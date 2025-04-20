@@ -1,63 +1,81 @@
 # main.py
 
-import duckdb
-# Assuming your modified file is saved as tomtom_extracts.py
-# Import the new extraction function and optionally the CONFIG for default areas
-from tomtom_extracts import extract_traffic_data_for_areas, CONFIG as EXTRACT_CONFIG
+import os
+from dotenv import load_dotenv
 
-# Keep the imports for load and transform (though their internal logic will change later)
-from load import load_data_to_duckdb # Note: This file's logic still needs updating for traffic data structure
-from transform import transform_data_in_duckdb # Note: This file's logic still needs updating for traffic data structure
+# Import the extraction function and the CONFIG dictionary from extracts.py
+# CONFIG is needed here for shared settings like API key, points, folder
+from extracts import extract_traffic_data_for_areas, CONFIG
+
+# Import the transformation function from transform.py
+from transform import transform_traffic_data # Note: This replaces the old transform_data_in_duckdb
 
 
 def main():
-    print("Starting TomTom Traffic ETL process...")
+    """
+    Main function to orchestrate the TomTom traffic data ETL pipeline.
+    """
+    print("--- Starting TomTom Traffic Data ETL Pipeline ---")
 
-    # --- Define the areas of interest ---
-    # Instead of batch size/count, you now define the geographic areas to process.
-    # This list should contain the bounding box strings or other identifiers
-    # expected by your construct_api_url function in tomtom_extracts.py.
-    # You can use the default defined in tomtom_extracts.py or define others here.
-    areas_to_extract = [
-        EXTRACT_CONFIG["DEFAULT_AREA_BBOX"], # Using the default from the config
-        # Add more areas if needed, e.g.:
-        # "lat3,lon3,lat4,lon4",
-        # "lat5,lon5,lat6,lon6",
-    ]
+    # --- Configuration and Setup ---
+    load_dotenv() # Load environment variables from .env file
+    print("Configuration loaded from .env")
+
+    # Perform initial checks using the imported CONFIG
+    if not CONFIG.get("TOMTOM_API_KEY"): # Use .get for safer access
+        raise ValueError("TOMTOM_API_KEY environment variable not set. Please check your .env file.")
+        # In a production app, you might handle this more gracefully
+
+    output_folder = CONFIG.get("folder", "traffic_data") # Use .get with a default
+    os.makedirs(output_folder, exist_ok=True)
+    print(f"Output folder '{output_folder}' ensured.")
+
+    # Get the points to process from CONFIG
+    points_to_process = CONFIG.get("ROUTE_POINTS_EXAMPLE")
+    if not points_to_process:
+        print("No points defined in CONFIG['ROUTE_POINTS_EXAMPLE']. Please add points to extracts.py CONFIG.")
+        print("Aborting pipeline.")
+        return # Exit if no points are defined
+
+    print(f"Pipeline configured to process {len(points_to_process)} point(s).")
 
     # --- Extraction Phase ---
-    print("--- Extraction Phase ---")
-    # Call the new extraction function with the list of areas
-    extracted_files = extract_traffic_data_for_areas(areas_to_extract)
+    print("\n--- Starting Extraction Phase ---")
+    # Call the extract function and get the list of saved file paths
+    extracted_file_paths = extract_traffic_data_for_areas(points_to_process)
 
-    # You can optionally print the list of files that were generated
-    # print("Extracted Parquet files:\n", extracted_files)
+    # Check if the extraction phase was successful and produced files
+    if not extracted_file_paths:
+        print("\n❌ Extraction Phase failed or produced no files. Aborting transformation.")
+        # Consider logging this failure more formally
+        return # Exit if extraction failed
 
-    # Check if any files were extracted before proceeding
-    if not extracted_files:
-        print("No files were extracted. Aborting loading and transformation.")
-        return # Exit the main function if no files
+    print(f"\n✅ Extraction Phase Complete. {len(extracted_file_paths)} file(s) extracted and saved.")
+    # Optional: Print the list of extracted files here in main.py if desired
+    # print("Extracted files:", extracted_file_paths)
 
-    # --- Loading Phase ---
-    print("\n--- Loading Phase ---")
-    # It's a good idea to change the database name to reflect the data
-    conn = duckdb.connect("traffic_data.db")
-
-    # Pass the list of extracted file paths to the loading function
-    # *** NOTE: The load_data_to_duckdb function's internal logic
-    #     still needs to be updated to handle the new traffic data schema. ***
-    load_data_to_duckdb(extracted_files, conn)
 
     # --- Transformation Phase ---
-    print("\n--- Transformation Phase ---")
-    # Pass the database connection to the transformation function
-    # *** NOTE: The transform_data_in_duckdb function's internal logic
-    #     still needs to be updated for traffic data transformations. ***
-    transform_data_in_duckdb(conn)
+    print("\n--- Starting Transformation Phase ---")
+    # Pass the list of extracted file paths to the transformation function
+    transformed_data_df, calculated_averages_dict, estimated_time_sec = transform_traffic_data(extracted_file_paths)
 
-    # --- Cleanup ---
-    conn.close()
-    print("\nETL process finished.")
+    # You can now use the results from the transformation phase in main.py
+    if transformed_data_df.empty:
+         print("\n❌ Transformation Phase resulted in no data. Check transformation logic and logs.")
+    else:
+         print("\n✅ Transformation Phase Complete.")
+         # Optionally print final results obtained from the transform step
+         print("\n--- Final Estimated Travel Time from Transformation ---")
+         if estimated_time_sec is not None:
+             print(f"Estimated Travel Time for Route: {estimated_time_sec:.2f} seconds ({estimated_time_sec/60:.2f} minutes)")
+         else:
+             print("Could not estimate travel time from sampled points.")
+
+
+    print("\n--- ETL Pipeline Finished ---")
+    # In a real application, you might add a Load step here
+    # (e.g., saving the combined_df or calculated_averages to a database or data warehouse)
 
 
 if __name__ == "__main__":

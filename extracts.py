@@ -226,124 +226,13 @@ def extract_traffic_data_for_areas(points_to_process):
     print("\n✅ ETL Extraction phase completed.")
     return file_paths
 
-# --- Simple Transformation Function (Example) ---
-
-def transform_traffic_data(file_paths):
-    """
-    Reads data from saved Parquet files, combines it, and calculates averages.
-    Derives estimated travel time based on average speed and a *known* route distance.
-
-    Args:
-        file_paths (list): A list of paths (strings) to the Parquet files from a single extraction run
-                           (each file containing data for one point).
-
-    Returns:
-        pd.DataFrame: A DataFrame containing the combined raw data.
-        dict: A dictionary containing calculated average metrics with units in keys.
-        float/None: Estimated travel time in seconds, or None if calculation is not possible.
-    """
-    print("\n--- Starting Transformation ---")
-
-    if not file_paths:
-        print("No files provided for transformation.")
-        return pd.DataFrame(), {}, None
-
-    all_dataframes = []
-    for f_path in file_paths:
-        try:
-            print(f"📖 Reading file: {f_path}")
-            df = pd.read_parquet(f_path)
-            all_dataframes.append(df)
-        except Exception as e:
-            print(f"❌ Error reading file {f_path}: {e}")
-            traceback.print_exc()
-            continue
-
-    if not all_dataframes:
-         print("No dataframes successfully read.")
-         return pd.DataFrame(), {}, None
-
-    # Combine all dataframes into one
-    combined_df = pd.concat(all_dataframes, ignore_index=True)
-    print(f"Combined data from {len(all_dataframes)} files into DataFrame with shape {combined_df.shape}")
-
-    # --- Calculate Averages ---
-    # Column units: currentSpeed, freeFlowSpeed (km/h); currentTravelTime, freeFlowTravelTime (seconds per segment)
-    numeric_cols_for_avg = ['currentSpeed', 'freeFlowSpeed', 'currentTravelTime', 'freeFlowTravelTime', 'confidence']
-    averages = {}
-    for col in numeric_cols_for_avg:
-        if col in combined_df.columns:
-             # Add unit to the key name for clarity
-             if col in ['currentSpeed', 'freeFlowSpeed']:
-                 avg_key = f"average_{col}_kmph"
-             elif col in ['currentTravelTime', 'freeFlowTravelTime']:
-                 avg_key = f"average_{col}_seconds_per_segment" # Clarify this is per the API's segment
-             elif col == 'confidence':
-                 avg_key = f"average_{col}_unitless"
-             else:
-                 avg_key = f"average_{col}" # Default if unit unknown/unnecessary
-
-             averages[avg_key] = combined_df[col].mean()
-        else:
-             averages[f"average_{col}"] = None # Or np.nan
-
-    print("\nCalculated Averages from Sampled Points:")
-    for key, value in averages.items():
-        print(f"  {key}: {value}")
-
-    # --- Derive Estimated Travel Time for the Full Route ---
-    # This REQUIRES the total distance of the route from start (d3) to end (d2).
-    # This distance is NOT provided by the flowSegmentData API.
-    # You must replace this placeholder with the actual distance (e.g., obtained from a mapping service).
-    route_distance_meters = 5000 # <<< REPLACE WITH ACTUAL ROUTE DISTANCE IN METERS (e.g., 5000 for 5km)
-
-    # Get the average current speed across the sampled points
-    avg_current_speed_kmph = averages.get("average_currentSpeed_kmph") # Unit: km/h
-
-    estimated_travel_time_seconds = None
-    if avg_current_speed_kmph is not None and not pd.isna(avg_current_speed_kmph) and avg_current_speed_kmph >= 0 and route_distance_meters is not None and route_distance_meters > 0:
-         # Convert average speed from km/h to meters per second (m/s)
-         # Formula: km/h * (1000 m / 1 km) * (1 hour / 3600 seconds) = m/s
-         avg_current_speed_mps = avg_current_speed_kmph * 1000 / 3600 # Unit: m/s
-
-         if avg_current_speed_mps > 0: # Avoid division by zero if average speed is 0
-            # Time (seconds) = Distance (m) / Speed (m/s)
-            estimated_travel_time_seconds = route_distance_meters / avg_current_speed_mps # Unit: seconds
-            print(f"\nEstimated travel time for route (assuming distance {route_distance_meters:.2f} meters):")
-            print(f"  Average Current Speed Used: {avg_current_speed_kmph:.2f} km/h")
-            print(f"  Estimated Time: {estimated_travel_time_seconds:.2f} seconds")
-            print(f"  Estimated Time: {estimated_travel_time_seconds/60:.2f} minutes")
-         else:
-             print("\nCannot estimate travel time: Average current speed is effectively zero.")
-    else:
-        print("\nCannot estimate travel time: Average current speed is missing/invalid or route distance is missing/zero.")
-
-
-    print("\n--- Transformation Complete ---")
-
-    return combined_df, averages, estimated_travel_time_seconds
-
 
 # --- Main Execution Block ---
 if __name__ == "__main__":
     print("Running extracts.py directly...")
 
     # --- Part 1: Extraction ---
-    print("\n--- Starting Extraction Process ---")
-    points_for_route = CONFIG["ROUTE_POINTS_EXAMPLE"]
-    extracted_file_paths = extract_traffic_data_for_areas(points_for_route)
+    # This section runs extract_traffic_data_for_areas, which creates the files
+    # ... code to call extract_traffic_data_for_areas ...
+    extracted_file_paths = extract_traffic_data_for_areas(CONFIG['ROUTE_POINTS_EXAMPLE']) # <-- This creates the files
 
-    print(f"\nExtracted data saved to files: {extracted_file_paths}")
-
-    # --- Part 2: Transformation ---
-    # Call the transformation function imported from transform.py
-    print("\n--- Starting Transformation Process ---")
-    if extracted_file_paths:
-        # Call the imported transform function
-        transformed_data_df, calculated_averages_dict, estimated_time_sec = transform_traffic_data(extracted_file_paths)
-
-        # You can now use these results in extracts.py if needed
-        # print("\nTransformation Results received back in extracts.py:")
-        # print("Estimated Time (seconds):", estimated_time_sec)
-    else:
-        print("No files were extracted, skipping transformation.")
