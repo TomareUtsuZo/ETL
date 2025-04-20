@@ -127,77 +127,110 @@ def save_to_parquet(df, file_path):
 def parse_traffic_response_to_dataframe(xml_data):
     """
     Parses the XML response from the TomTom Traffic API into a pandas DataFrame.
-    --- !!! IMPLEMENT XML PARSING LOGIC HERE !!! ---
-
-    Args:
-        xml_data (str): Raw XML response text from fetch_data_from_api.
-
-    Returns:
-        pd.DataFrame: DataFrame containing parsed traffic data. Returns empty DataFrame on failure or if no data.
     """
+    print("--- Inside parse_traffic_response_to_dataframe ---")
+
     if not xml_data:
+        print("No XML data provided for parsing.")
         return pd.DataFrame()
 
     print("Attempting to parse XML response...")
 
     records = []
     try:
-        # Parse the XML string
+        print(f"Type of xml_data: {type(xml_data)}")
+        print(f"Start of xml_data: {xml_data[:100]}...")
+
         root = ET.fromstring(xml_data)
+        print(f"XML parsed successfully. Root tag: {root.tag}")
 
-        # --- !!! IMPLEMENT YOUR XML TRAVERSAL AND DATA EXTRACTION LOGIC HERE !!! ---
-        # Based on your curl output, the structure is like:
-        # <flowSegmentData>
-        #   <frc>...</frc>
-        #   <currentSpeed>...</currentSpeed>
-        #   ...
-        #   <coordinates>
-        #     <coordinate>...</coordinate>
-        #     <coordinate>...</coordinate>
-        #     ...
-        #   </coordinates>
-        # </flowSegmentData>
+        segment_data = {}
 
-        # For the 'flowSegmentData' endpoint, you get one primary object per request point.
-        # You can extract its attributes directly.
-        flow_segment_data = {}
-        # Example: Extracting simple elements
-        for child in root:
-             if child.tag in ['frc', 'currentSpeed', 'freeFlowSpeed', 'currentTravelTime',
-                              'freeFlowTravelTime', 'confidence', 'roadClosure']:
-                 flow_segment_data[child.tag] = child.text
+        # --- Extract simple scalar elements ---
+        print("Extracting scalar elements...") # Refined print
+        scalar_tags = ['frc', 'currentSpeed', 'freeFlowSpeed', 'currentTravelTime',
+                       'freeFlowTravelTime', 'confidence', 'roadClosure']
 
-        # Handling coordinates - this can be tricky to put into a single row DataFrame
-        # For now, maybe skip or process separately, or store as a list/string
-        coordinates = []
+        for tag in scalar_tags:
+            element = root.find(tag)
+            # --- ADD THESE DEBUG PRINTS ---
+            print(f"  Looking for tag: <{tag}>")
+            if element is not None:
+                print(f"    Found tag: <{tag}>. Text content: '{element.text}'")
+            else:
+                print(f"    Tag <{tag}> not found.")
+            # ----------------------------
+            segment_data[tag] = element.text if element is not None else None
+
+        print("Finished extracting scalar elements.") # Refined print
+
+
+        # --- Handling Coordinates ---
+        print("Processing coordinates...") # Refined print
+        coordinates_list = []
         coords_element = root.find('coordinates')
         if coords_element is not None:
-             for coord_elem in coords_element.findall('coordinate'):
-                 lat = coord_elem.find('latitude').text if coord_elem.find('latitude') is not None else None
-                 lon = coord_elem.find('longitude').text if coord_elem.find('longitude') is not None else None
+             print("  <coordinates> element found.") # ADD THIS PRINT
+             for i, coord_elem in enumerate(coords_element.findall('coordinate')):
+                 lat_elem = coord_elem.find('latitude')
+                 lon_elem = coord_elem.find('longitude')
+                 lat = float(lat_elem.text) if lat_elem is not None and lat_elem.text else None
+                 lon = float(lon_elem.text) if lon_elem is not None and lon_elem.text else None
                  if lat is not None and lon is not None:
-                     coordinates.append({'latitude': float(lat), 'longitude': float(lon)})
+                     coordinates_list.append((lat, lon)) # Store as a tuple list
+                     # --- ADD THIS DEBUG PRINT (Optional, can be verbose) ---
+                     # if i < 5: # Print only the first few coordinates found
+                     #     print(f"    Found coordinate {i}: ({lat}, {lon})")
+                     # -------------------------------------------------------
+                 else:
+                     print(f"    Warning: Found coordinate element {i} but lat/lon text was missing or invalid.") # ADD THIS PRINT
 
-        # You might want to add the coordinates as a list or JSON string to the row
-        # For a simple DataFrame, you might just add the count or a representation
-        flow_segment_data['coordinate_count'] = len(coordinates)
-        # flow_segment_data['coordinates_list'] = coordinates # Might be complex column type
+        segment_data['coordinate_count'] = len(coordinates_list)
+        segment_data['coordinates'] = coordinates_list
+        print(f"Processed {len(coordinates_list)} coordinates.") # Refined print
 
-        # Since this endpoint gives one segment per point, your DataFrame might have just one row per point
-        records.append(flow_segment_data)
 
+        records.append(segment_data)
+
+
+        # Create the pandas DataFrame
+        print(f"Creating DataFrame from dictionary with keys: {list(segment_data.keys())}") # ADD THIS PRINT
         df = pd.DataFrame(records)
-        print(f"Parsed {len(df)} records from XML.")
+        print(f"Created DataFrame with {df.shape[0]} rows and {df.shape[1]} columns.") # Updated print
 
+        # --- Optional: Convert data types ---
+        print("Converting data types...") # Refined print
+        numeric_cols = ['currentSpeed', 'freeFlowSpeed', 'currentTravelTime', 'freeFlowTravelTime', 'confidence']
+        for col in numeric_cols:
+            if col in df.columns:
+                # Use pd.to_numeric with errors='coerce' to turn unparseable values into NaN
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+
+        if 'roadClosure' in df.columns:
+             # Convert 'true'/'false' strings to boolean
+             df['roadClosure'] = df['roadClosure'].astype(str).str.lower() == 'true'
+        print("Finished converting data types.") # Refined print
+
+
+        print(f"Parsed {len(df)} records from XML.")
+        # print(df.head()) # Optional: Print the first few rows of the parsed DataFrame
+
+
+        print("--- Exiting parse_traffic_response_to_dataframe ---")
         return df
 
     except ET.ParseError as e:
         print(f"❌ Error parsing XML response: {e}")
+        print("--- Exiting parse_traffic_response_to_dataframe with ParseError ---")
         return pd.DataFrame()
     except Exception as e:
         print(f"❌ Error processing parsed XML data: {e}")
+        # print(f"XML Root element: {root.tag if 'root' in locals() and root is not None else 'N/A'}")
+        print("--- Exiting parse_traffic_response_to_dataframe with Exception ---")
+        # Keep the traceback for now
+        import traceback
+        traceback.print_exc()
         return pd.DataFrame()
-
 
 # --- Main ETL Extraction Function (For main.py to import) ---
 # This function needs to be adapted to take a LIST OF POINTS or AREAS
@@ -271,7 +304,8 @@ def extract_traffic_data_for_areas(points_to_process):
 
 def test_tomtom_extraction():
     """
-    Performs a simple test extraction for a predefined point and prints the response.
+    Performs a simple test extraction for a predefined point,
+    parses the response, and prints the resulting DataFrame.
     Used by the __main__ block below.
     """
     print("--- Starting Simple TomTom Extraction Test ---")
@@ -279,21 +313,37 @@ def test_tomtom_extraction():
     test_point = CONFIG["TEST_POINT"]
     print(f"Using test point: {test_point}")
 
-    # Construct the URL for the test point using the main construct function
+    # Construct the URL for the test point
     # Use parameters appropriate for the /flowSegmentData/absolute endpoint (point, zoom, xml)
     test_url = construct_api_url(point=test_point, zoom=10, format='xml') # Adjust params as needed
 
     # Fetch the data (returns XML text)
     xml_data = fetch_data_from_api(test_url)
 
-    # Print the raw response data if successfully fetched (and not caught by fetch_data's error handling)
+    # Process the fetched data only if it was successful
     if xml_data is not None:
         print("\n✅ Successfully fetched data. Raw XML response:")
         print(xml_data) # Print the XML text directly
-        print("\n--- Simple Test Complete: Data Fetched ---")
+        print("\nAttempting to parse the fetched XML data...") # ADD THIS PRINT
+
+        # --- Call the parsing function ---
+        parsed_df = parse_traffic_response_to_dataframe(xml_data) # ADD THIS LINE
+        # -----------------------------------
+
+        # Check if parsing was successful and resulted in a non-empty DataFrame
+        if not parsed_df.empty:
+            print("\n✅ Successfully parsed data. Resulting DataFrame head:") # ADD THIS PRINT
+            print(parsed_df.head()) # Print the head of the DataFrame
+            print(f"\nDataFrame shape: {parsed_df.shape}") # ADD THIS PRINT
+            print("\n--- Simple Test Complete: Data Parsed ---") # ADD THIS PRINT
+        else:
+             print("\n❌ Parsing resulted in an empty DataFrame.") # ADD THIS PRINT
+             print("Please check the parse_traffic_response_to_dataframe function logic.")
+             print("\n--- Simple Test Complete: Parsing Failed ---") # ADD THIS PRINT
     else:
         print("\n❌ Simple Test Failed: Could not fetch data.")
         print("Please review the error message above and troubleshooting steps.")
+
 
 
 # --- This block runs ONLY when you execute 'python extracts.py' directly ---
