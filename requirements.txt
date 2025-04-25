@@ -8,3 +8,4 @@ xmltodict # Often useful for XML to dict conversion, ET is fine too
 pyarrow # Or fastparquet, needed for pandas to_parquet/read_parquet
 snowflake-connector-python # For connecting to Snowflake
 # Add any other libraries your weather or loading code needs
+pendulum

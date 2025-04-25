@@ -1,0 +1,184 @@
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+# This is a standard docker-compose.yml for Airflow with CeleryExecutor.
+# It includes necessary volume mounts for DAGs, scripts, and data folders.
+
+version: '3.8'
+
+# Define common settings for Airflow services
+x-airflow-common: &x-airflow-common # <-- Anchor definition here
+  # Set the Airflow image to use (matches your Dockerfile FROM)
+  image: ${AIRFLOW_IMAGE_NAME:-apache/airflow:2.10.5}
+  # Set the user to run as within the container
+  user: "${AIRFLOW_UID:-50000}:0"
+  # Define common environment variables
+  environment:
+    AIRFLOW_CI: "true"
+    AIRFLOW_HOME: "/opt/airflow"
+    AIRFLOW__CORE__DAGS_FOLDER: "/opt/airflow/dags"
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false" # Set to false to avoid loading example DAGs
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+    AIRFLOW__EXECUTOR__CELERY_BROKER_URL: redis://redis:6379/0
+    AIRFLOW__EXECUTOR__CELERY_RESULT_BACKEND: redis://redis:6379/1
+    AIRFLOW__WEBSERVER__SECRET_KEY: "temporary_secret_key" # **CHANGE THIS IN PRODUCTION**
+    # Map Airflow Variables to environment variables for scripts to read
+    # Ensure these Variables are set in your Airflow UI
+    AIRFLOW_VAR_SNOWFLAKE_DATABASE: ${SNOWFLAKE_DATABASE:-YOUR_DATABASE}
+    AIRFLOW_VAR_SNOWFLAKE_SCHEMA: ${SNOWFLAKE_SCHEMA:-YOUR_SCHEMA}
+    AIRFLOW_VAR_SNOWFLAKE_WAREHOUSE: ${SNOWFLAKE_WAREHOUSE:-YOUR_WAREHOUSE}
+    AIRFLOW_VAR_TOMTOM_API_KEY: ${TOMTOM_API_KEY}
+    AIRFLOW_VAR_WEATHER_API_KEY: ${WEATHER_API_KEY}
+    AIRFLOW_VAR_WEATHER_API_BASE_URL: ${WEATHER_API_BASE_URL}
+    AIRFLOW_VAR_WEATHER_OUTPUT_FOLDER: ${WEATHER_OUTPUT_FOLDER:-/opt/airflow/source_data/weather}
+    AIRFLOW_VAR_TRAFFIC_OUTPUT_FOLDER: ${TRAFFIC_OUTPUT_FOLDER:-/opt/airflow/source_data/traffic}
+    AIRFLOW_VAR_WEATHER_API_TIMEOUT_SECONDS: ${WEATHER_API_TIMEOUT_SECONDS:-10}
+    AIRFLOW_VAR_TRAFFIC_API_TIMEOUT_SECONDS: ${TRAFFIC_API_TIMEOUT_SECONDS:-10}
+    # Optional: Discord webhook for notifications
+    AIRFLOW_VAR_DISCORD_WEBHOOK: ${DISCORD_WEBHOOK}
+
+  # Define common volume mounts
+  volumes:
+    # Mount your local dags folder into the container
+    - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
+    # Mount your local scripts folder into the container - THIS IS CRUCIAL FOR ModuleNotFoundError
+    - ${AIRFLOW_PROJ_DIR:-.}/scripts:/opt/airflow/scripts
+    # Mount logs for persistence and debugging
+    - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
+    # Mount configuration files if needed
+    - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
+    # Mount plugins if you have any custom plugins
+    - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
+    # Mount source data folder for raw extracted files
+    - ${AIRFLOW_PROJ_DIR:-.}/source_data:/opt/airflow/source_data
+    # Mount transformed data folder for staged files
+    - ${AIRFLOW_PROJ_DIR:-.}/transformed_data:/opt/airflow/transformed_data
+    # Mount a temporary data folder for test DAGs if they create files
+    - ${AIRFLOW_PROJ_DIR:-.}/temp_data:/opt/airflow/temp_data
+
+
+services:
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    ports:
+      - "5432:5432"
+    command: postgres -c max_connections=500
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "airflow"]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+    restart: always
+
+  redis:
+    image: redis:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      retries: 5
+      timeout: 5s
+    restart: always
+
+  airflow-webserver:
+    <<: *x-airflow-common # Inherit common settings
+    command: webserver
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
+      interval: 30s
+      retries: 5
+      timeout: 30s
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+
+  airflow-scheduler:
+    <<: *x-airflow-common # Inherit common settings
+    command: scheduler
+    healthcheck:
+      test: ["CMD", "bash", "-c", "airflow task list ${AIRFLOW__CORE__DAGS_FOLDER} | grep scheduler"]
+      interval: 10s
+      retries: 5
+      timeout: 10s
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+
+  airflow-worker:
+    <<: *x-airflow-common # Inherit common settings
+    command: worker
+    healthcheck:
+      test: ["CMD", "bash", "-c", "airflow task list ${AIRFLOW__CORE__DAGS_FOLDER} | grep worker"]
+      interval: 10s
+      retries: 5
+      timeout: 10s
+    restart: always
+    depends_on:
+      - postgres
+      - redis
+
+  # Optional: Airflow Triggerer (needed for deferrable operators)
+  # airflow-triggerer:
+  #   <<: *x-airflow-common
+  #   command: triggerer
+  #   healthcheck:
+  #     test: ["CMD", "bash", "-c", "airflow task list ${AIRFLOW__CORE__DAGS_FOLDER} | grep triggerer"]
+  #     interval: 10s
+  #     retries: 5
+  #     timeout: 10s
+  #   restart: always
+  #   depends_on:
+  #     - postgres
+  #     - redis
+
+  # Optional: Airflow Init (runs database migrations and creates default user)
+  airflow-init:
+    <<: *x-airflow-common
+    command: version
+    environment:
+      <<: *x-airflow-common.environment
+      _AIRFLOW_DB_MIGRATE: 'true'
+      _AIRFLOW_WWW_USER_CREATE: 'true'
+      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
+      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
+    user: "0:0" # Run as root for init tasks
+    volumes:
+      - ${AIRFLOW_PROJ_DIR:-.}:/sources # Example mount, adjust as needed
+    depends_on:
+      - postgres
+      - redis
+
+# Define volumes for persistence
+volumes:
+  # Persistent volume for PostgreSQL data
+  postgres_data:
+  # Persistent volume for Redis data
+  redis_data:
+
+# Define networks (optional, but good practice)
+networks:
+  default:
+    driver: bridge
